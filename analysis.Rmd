@@ -33,7 +33,7 @@ if(file.exists('data.RData')){
                                                                           annotateIntSites()
                                                                         })))
   
-  save(intSites, sampleData, file = 'data2.RData', compress = 'bzip2', compression_level = 9)          
+  save(intSites, sampleData, file = 'data.RData', compress = 'bzip2', compression_level = 9)          
 }
 
 intSites <- data.frame(intSites)
