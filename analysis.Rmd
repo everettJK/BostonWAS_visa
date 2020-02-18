@@ -1,0 +1,99 @@
+---
+title: "Boston WAS site sharing"
+date:  "February 14, 2020"
+output: 
+  pdf_document:
+    keep_tex: false
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(GenomicRanges)
+library(UpSetR)
+library(VennDiagram)
+library(kableExtra)
+
+# Load data file or create it if it does not exist.
+if(file.exists('data.RData')){
+  load('data.RData')
+} else {
+  library(gt23)
+  library(RMySQL)
+  
+  dbConn <- dbConnect(MySQL(), group='specimen_management')
+  sampleData <- dbGetQuery(dbConn, 'select * from gtsp')
+  dbDisconnect(dbConn)
+  sampleData <- subset(sampleData, Patient %in% c("pWAS00002", "pWAS00003", "pWAS00004", "pWAS00005", "pWAS00006"))
+  
+  intSites <- getDBgenomicFragments(sampleData$SpecimenAccNum, 'specimen_management', 'intsites_miseq') 
+  intSites <- unlist(
+                GRangesList(
+                   lapply(split(intSites, intSites$patient), function(x){ stdIntSiteFragments(x) %>%
+                                                                          collapseReplicatesCalcAbunds() %>%
+                                                                          annotateIntSites()
+                                                                        })))
+  
+  save(intSites, sampleData, file = 'data2.RData', compress = 'bzip2', compression_level = 9)          
+}
+
+intSites <- data.frame(intSites)
+intSites <- filter(intSites, cellType %in% c("PBMC", "T cells", "Neutrophils", "NK cells", "B cells"))
+```
+
+\vspace{2.0cm}
+
+```{r, echo=FALSE}
+# Create a table on recovered intSites.
+tbl <- group_by(intSites, patient, cellType) %>% 
+       summarise(uniqueSites = n_distinct(posid)) %>% 
+       ungroup() %>% 
+       mutate(uniqueSites = formatC(uniqueSites, format="d", big.mark=",")) %>%
+       spread(cellType, uniqueSites)
+
+kable(tbl, "latex", booktabs = T) %>% kable_styling(latex_options =c("striped", "scale_down"))
+```
+
+\newpage
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=8}
+
+# Group data by patient / timePoint / position then count the numbeber of cellTypes 
+# each position is found within. Create a table of cell types within do() which 
+# will be bound together into a single data frame.
+d <- group_by(intSites, patient, timePointDays, posid) %>% 
+     summarise(cellTypes = n_distinct(cellType)) %>%
+     ungroup() %>%
+     group_by(patient, timePointDays) %>%
+     do(data.frame(table(.$cellTypes))) %>%
+     ungroup() %>%
+     mutate(timePointDays = factor(timePointDays, levels = sort(unique(timePointDays))))
+
+ggplot(d, aes(timePointDays, Freq, fill = Var1)) +
+  theme_bw() +
+  geom_col() + 
+  scale_fill_manual(name = 'Shared', values = c('dodgerblue2', 'green3', 'yellow2', 'orange2', 'red2')) +
+  facet_grid(~patient, scales="free") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+\newpage
+
+```{r, echo=FALSE, height = 8, results='asis', warning=FALSE, message=FALSE}
+invisible(lapply(group_split(group_by(intSites, patient, timePointDays)), function(x){
+  
+  d <- lapply(split(x, x$cellType), function(z) unique(z$posid))
+  
+  cat(paste0('#', unique(x$patient), ' ', unique(x$timePoint), '\n\n'))
+  
+  # Here we write out the venn diagram because grid.draw() overlaps the following upSet plot.
+  f <- file.path('figures', paste0(unique(x$patient), '.', unique(x$timePoint), '.venn.png'))
+  venn.diagram(d, imagetype = 'png', file = f)
+  cat(paste0('\\begin{center} \\includegraphics[width=5in]{', f, '} \\end{center}'))
+  
+  upset(fromList(d), order.by = "freq")
+  
+  cat('\\newpage\n\n')
+}))
+
+system('rm figures/*.log')
+```
