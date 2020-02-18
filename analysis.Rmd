@@ -36,8 +36,7 @@ if(file.exists('data.RData')){
   save(intSites, sampleData, file = 'data.RData', compress = 'bzip2', compression_level = 9)          
 }
 
-intSites <- data.frame(intSites)
-intSites <- filter(intSites, cellType %in% c("PBMC", "T cells", "Neutrophils", "NK cells", "B cells"))
+intSites <- filter(data.frame(intSites), cellType %in% c("PBMC", "T cells", "Neutrophils", "NK cells", "B cells"))
 ```
 
 \vspace{2.0cm}
